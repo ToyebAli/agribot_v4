@@ -1,13 +1,16 @@
 """
-api/predictor.py  — v3
-Loads all trained models and exposes prediction functions.
-New additions: yield prediction, state profile lookup.
+api/predictor.py  — v4
+Loads models from Hugging Face Hub and exposes prediction functions.
+Updated: Now fetches all models from Hugging Face Hub instead of local storage.
 """
 
 import os, json, joblib, numpy as np
 from typing import Optional
+from huggingface_hub import hf_hub_download
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+# Hugging Face Hub configuration
+HF_REPO_ID = "Toyeb/agribot-models"
+HF_CACHE_DIR = os.path.expanduser("~/.cache/agribot_models")  # Local cache directory
 
 # ── Singletons ────────────────────────────────────────────────────────────────
 _crop_model = _crop_le = _crop_scaler = _crop_meta = None
@@ -20,19 +23,21 @@ _state_profiles = _crop_stats = None
 def _load_crop():
     global _crop_model, _crop_le, _crop_scaler, _crop_meta
     if _crop_model is None:
-        _crop_model  = joblib.load(os.path.join(MODEL_DIR, "crop_model.pkl"))
-        _crop_le     = joblib.load(os.path.join(MODEL_DIR, "crop_label_encoder.pkl"))
-        _crop_scaler = joblib.load(os.path.join(MODEL_DIR, "crop_scaler.pkl"))
-        with open(os.path.join(MODEL_DIR, "crop_meta.json")) as f:
+        _crop_model  = joblib.load(hf_hub_download(repo_id=HF_REPO_ID, filename="crop_model.pkl", cache_dir=HF_CACHE_DIR))
+        _crop_le     = joblib.load(hf_hub_download(repo_id=HF_REPO_ID, filename="crop_label_encoder.pkl", cache_dir=HF_CACHE_DIR))
+        _crop_scaler = joblib.load(hf_hub_download(repo_id=HF_REPO_ID, filename="crop_scaler.pkl", cache_dir=HF_CACHE_DIR))
+        crop_meta_path = hf_hub_download(repo_id=HF_REPO_ID, filename="crop_meta.json", cache_dir=HF_CACHE_DIR)
+        with open(crop_meta_path) as f:
             _crop_meta = json.load(f)
 
 def _load_fertilizer():
     global _fert_model, _fert_enc, _fert_scaler, _fert_meta
     if _fert_model is None:
-        _fert_model  = joblib.load(os.path.join(MODEL_DIR, "fertilizer_model.pkl"))
-        _fert_enc    = joblib.load(os.path.join(MODEL_DIR, "fertilizer_encoders.pkl"))
-        _fert_scaler = joblib.load(os.path.join(MODEL_DIR, "fertilizer_scaler.pkl"))
-        with open(os.path.join(MODEL_DIR, "fertilizer_meta.json")) as f:
+        _fert_model  = joblib.load(hf_hub_download(repo_id=HF_REPO_ID, filename="fertilizer_model.pkl", cache_dir=HF_CACHE_DIR))
+        _fert_enc    = joblib.load(hf_hub_download(repo_id=HF_REPO_ID, filename="fertilizer_encoders.pkl", cache_dir=HF_CACHE_DIR))
+        _fert_scaler = joblib.load(hf_hub_download(repo_id=HF_REPO_ID, filename="fertilizer_scaler.pkl", cache_dir=HF_CACHE_DIR))
+        fert_meta_path = hf_hub_download(repo_id=HF_REPO_ID, filename="fertilizer_meta.json", cache_dir=HF_CACHE_DIR)
+        with open(fert_meta_path) as f:
             _fert_meta = json.load(f)
 
 def _load_intent():
@@ -40,42 +45,45 @@ def _load_intent():
     if _intent_model is None:
         import torch
         from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
-        idir = os.path.join(MODEL_DIR, "intent_model")
-        _intent_tok   = DistilBertTokenizerFast.from_pretrained(idir)
-        _intent_model = DistilBertForSequenceClassification.from_pretrained(idir)
+        intent_model_id = f"{HF_REPO_ID}/intent_model"
+        _intent_tok   = DistilBertTokenizerFast.from_pretrained(intent_model_id, cache_dir=HF_CACHE_DIR)
+        _intent_model = DistilBertForSequenceClassification.from_pretrained(intent_model_id, cache_dir=HF_CACHE_DIR)
         _intent_model.eval()
-        with open(os.path.join(idir, "intent_labels.json")) as f:
+        intent_labels_path = hf_hub_download(repo_id=HF_REPO_ID, filename="intent_labels.json", cache_dir=HF_CACHE_DIR, subfolder="intent_model")
+        with open(intent_labels_path) as f:
             _intent_labels = json.load(f)
 
 def _load_yield():
     global _yield_model, _yield_scaler, _yield_meta
     if _yield_model is None:
-        yp = os.path.join(MODEL_DIR, "yield_model.pkl")
-        if os.path.exists(yp):
-            _yield_model  = joblib.load(yp)
-            _yield_scaler = joblib.load(os.path.join(MODEL_DIR, "yield_scaler.pkl"))
-            with open(os.path.join(MODEL_DIR, "yield_meta.json")) as f:
+        try:
+            _yield_model  = joblib.load(hf_hub_download(repo_id=HF_REPO_ID, filename="yield_model.pkl", cache_dir=HF_CACHE_DIR))
+            _yield_scaler = joblib.load(hf_hub_download(repo_id=HF_REPO_ID, filename="yield_scaler.pkl", cache_dir=HF_CACHE_DIR))
+            yield_meta_path = hf_hub_download(repo_id=HF_REPO_ID, filename="yield_meta.json", cache_dir=HF_CACHE_DIR)
+            with open(yield_meta_path) as f:
                 _yield_meta = json.load(f)
+        except:
+            _yield_model = None  # Model not available on HF Hub yet
 
 def _load_state_profiles():
     global _state_profiles
     if _state_profiles is None:
-        sp = os.path.join(MODEL_DIR, "state_profiles.json")
-        if os.path.exists(sp):
-            with open(sp) as f:
+        try:
+            sp_path = hf_hub_download(repo_id=HF_REPO_ID, filename="state_profiles.json", cache_dir=HF_CACHE_DIR)
+            with open(sp_path) as f:
                 _state_profiles = json.load(f)
-        else:
-            _state_profiles = {}
+        except:
+            _state_profiles = {}  # File not available on HF Hub
 
 def _load_crop_stats():
     global _crop_stats
     if _crop_stats is None:
-        cs = os.path.join(MODEL_DIR, "crop_stats.json")
-        if os.path.exists(cs):
-            with open(cs) as f:
+        try:
+            cs_path = hf_hub_download(repo_id=HF_REPO_ID, filename="crop_stats.json", cache_dir=HF_CACHE_DIR)
+            with open(cs_path) as f:
                 _crop_stats = json.load(f)
-        else:
-            _crop_stats = {}
+        except:
+            _crop_stats = {}  # File not available on HF Hub
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
