@@ -45,9 +45,9 @@ def _load_intent():
     if _intent_model is None:
         import torch
         from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
-        intent_model_id = f"{HF_REPO_ID}/intent_model"
-        _intent_tok   = DistilBertTokenizerFast.from_pretrained(intent_model_id, cache_dir=HF_CACHE_DIR)
-        _intent_model = DistilBertForSequenceClassification.from_pretrained(intent_model_id, cache_dir=HF_CACHE_DIR)
+        # Use subfolder parameter for models in subfolders of HF Hub repo
+        _intent_tok   = DistilBertTokenizerFast.from_pretrained(HF_REPO_ID, subfolder="intent_model", cache_dir=HF_CACHE_DIR)
+        _intent_model = DistilBertForSequenceClassification.from_pretrained(HF_REPO_ID, subfolder="intent_model", cache_dir=HF_CACHE_DIR)
         _intent_model.eval()
         intent_labels_path = hf_hub_download(repo_id=HF_REPO_ID, filename="intent_labels.json", cache_dir=HF_CACHE_DIR, subfolder="intent_model")
         with open(intent_labels_path) as f:
